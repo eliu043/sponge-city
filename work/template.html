@@ -1,0 +1,395 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Street tree stormwater interception simulation</title>
+<style>
+  :root {
+    --bg: #f4f5f3; --panel: #ffffff; --ink: #1d2a26; --muted: #5d6b66; --line: #d9ded9;
+    --accent: #08519c; --map: #eef1f3; --sites: #b0795c;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+    font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; }
+  .app { display: grid; grid-template-columns: 320px minmax(0, 1fr) 340px; height: 100vh; gap: 0; }
+  .panel { background: var(--panel); overflow-y: auto; padding: 18px 18px 28px; }
+  .left { border-right: 1px solid var(--line); }
+  .right { border-left: 1px solid var(--line); }
+  h1 { font-size: 20px; line-height: 1.2; margin: 0 0 10px; }
+  h2 { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 22px 0 8px; }
+  p { margin: 0 0 10px; }
+  .small { font-size: 12px; color: var(--muted); }
+  ul { margin: 0 0 10px; padding-left: 18px; }
+  li { margin-bottom: 5px; }
+  a { color: var(--accent); }
+  .center { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+  .mapwrap { position: relative; flex: 1; min-height: 0; background: var(--map); }
+  canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+  .readout { position: absolute; left: 12px; top: 10px; background: rgba(255,255,255,.9); border: 1px solid var(--line);
+    padding: 6px 10px; border-radius: 6px; font-size: 13px; }
+  .readout b { font-size: 18px; }
+  .legend { position: absolute; left: 12px; bottom: 12px; background: rgba(255,255,255,.92); border: 1px solid var(--line);
+    padding: 8px 10px; border-radius: 6px; font-size: 12px; max-width: 260px; }
+  .bar { height: 10px; border-radius: 3px; margin: 4px 0 2px; border: 1px solid var(--line); }
+  .bar-labels { display: flex; justify-content: space-between; }
+  .swatch { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--sites); opacity: .7; margin-right: 5px; }
+  .clock { display: flex; gap: 6px; margin: 8px 0 6px; }
+  button { font: inherit; border: 1px solid var(--line); background: #fff; border-radius: 6px; padding: 6px 0; cursor: pointer; flex: 1; }
+  button:hover { background: #f0f4f8; }
+  button.on { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .year { font-size: 30px; font-weight: 700; }
+  input[type=range] { width: 100%; accent-color: var(--accent); margin: 2px 0; }
+  .ctl { margin-bottom: 16px; }
+  .ctl .head { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+  .ctl .name { font-weight: 600; }
+  .ctl .val { font-variant-numeric: tabular-nums; font-weight: 600; color: var(--accent); white-space: nowrap; }
+  .ends { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); }
+  .ctl .src { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .seg { display: flex; gap: 6px; margin-bottom: 4px; }
+  @media (max-width: 1000px) {
+    .app { grid-template-columns: 1fr; height: auto; }
+    .panel { overflow: visible; }
+    .left, .right { border: 0; }
+    .center { order: -1; }
+    .mapwrap { height: 70vh; flex: none; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- LEFT: what this is -->
+  <aside class="panel left">
+    <h1>Street tree stormwater interception simulation</h1>
+    <p>An attempt to visualize how street trees act as a network to mitigate stormwater runoff. This is using a simplified version of the NYC Parks Department's methodology, which uses the USDA Forest Service's i-Tree software.</p>
+    <p>It starts from the 2015 street tree census for upper Manhattan, estimates how much rain each tree's canopy catches in a year, and runs that forward to 2045 as trees grow, die, and are replanted.</p>
+
+    <h2>The rule</h2>
+    <p class="small">For every living tree, every year, the page works out:</p>
+    <ul class="small">
+      <li><b>crown (m)</b> from the tree's species equation, with trunk diameter converted to cm (1 in = 2.54 cm). Equations are from the Urban Tree Database, Northeast (Queens, 2005).</li>
+      <li><b>canopy (m²)</b> = π × (crown ÷ 2)²</li>
+      <li><b>stormwater (gal/yr)</b> = canopy × rain (in) × 0.0254 (in to m) × interception × 264.17 (m³ to gal)</li>
+      <li><b>growth</b>: the tree's age from its trunk diameter, then the diameter at age + 1 minus the diameter at that age. Growth is never less than zero, and a tree stops growing once it reaches the largest trunk diameter its age equation was fitted to (without this, a few trees grow without limit).</li>
+    </ul>
+    <p class="small">Equation shapes: linear, quadratic and cubic are polynomials in dbh or age; "loglog" is exp(a + b × ln(ln(x + 1))); "expow1" is read here as exp(a + b × x). The last two are this sandbox's reading of the Urban Tree Database; the constant c in them is not used.</p>
+
+    <h2>What the data and the rule leave out</h2>
+    <p class="small">This sandbox is based on a number of simplifications, including:</p>
+    <ul class="small">
+      <li>trees that stop growing at the edge of their equation's range, though real trees keep growing;</li>
+      <li>a flat figure for stormwater interception, the same for every species, season and storm (one Callery pear caught 15% and one cork oak 27% in the same study);</li>
+      <li>no awareness of local drainage, soils, pavement or topography that would affect runoff;</li>
+      <li>a simplified model of where trees die and where they are planted: deaths and plantings are random, planting only happens on 2015's dead-tree and stump sites, and a tree that dies during the run does not open up a new site;</li>
+      <li>no knowledge of the broader networks of policy and care that support the NYC street tree system;</li>
+      <li>1,559 trees (of 12,093) of species outside the equations file use honeylocust equations, and 1,328 use a close relative's. Trees are only the street trees in the 2015 census, not park or private trees;</li>
+      <li>the census has 1 tree with a trunk over 60 in (a data entry error), which is left out; 258 trees fall outside every census block and appear on the tree map but not in the block totals.</li>
+    </ul>
+
+    <h2>Data and citations</h2>
+    <ul class="small">
+      <li><b>2015 Street Tree Census</b>, NYC Parks / TreesCount!, cut to upper Manhattan: location, species, trunk diameter and status of each tree. <a href="https://data.cityofnewyork.us/Environment/2015-Street-Tree-Census-Tree-Data/uvpi-gqnh" target="_blank" rel="noopener">NYC Open Data</a></li>
+      <li><b>2010 Census Blocks</b>, NYC Department of City Planning, cut to upper Manhattan: block outlines for the block view. <a href="https://www.nyc.gov/site/planning/data-maps/open-data/census-download-metadata.page" target="_blank" rel="noopener">NYC Planning</a></li>
+      <li><b>Tree growth and crown equations</b>: Urban Tree Database, Northeast region (Queens, 2005), McPherson et al., USDA Forest Service. <a href="https://doi.org/10.2737/RDS-2016-0005" target="_blank" rel="noopener">Research Data Archive</a></li>
+      <li><b>Method</b>: NYC Parks, <a href="https://www.nycgovparks.org/tree-map/learn/benefits" target="_blank" rel="noopener">Street tree benefits</a>; <a href="https://www.itreetools.org/" target="_blank" rel="noopener">i-Tree</a> (41 in of rain, observed at JFK in 2000; tree death rates of 2.8% a year under age 5 and 0.57% after).</li>
+      <li><b>Interception</b>: Xiao, Q., McPherson, E.G., Simpson, J.R., Ustin, S.L. (2000), Winter rainfall interception by two mature open-grown trees in Davis, California, <i>Hydrological Processes</i> 14.</li>
+    </ul>
+  </aside>
+
+  <!-- CENTER: map -->
+  <main class="center">
+    <div class="mapwrap" id="mapwrap">
+      <canvas id="map"></canvas>
+      <div class="readout" id="readout"></div>
+      <div class="legend" id="legend"></div>
+    </div>
+  </main>
+
+  <!-- RIGHT: clock and controls -->
+  <aside class="panel right">
+    <h2 style="margin-top:0">Clock</h2>
+    <div class="year" id="yearLabel">2015</div>
+    <input type="range" id="clock" min="2015" max="2045" step="1" value="2015" aria-label="Year">
+    <div class="ends"><span>2015 (census)</span><span>2045</span></div>
+    <div class="clock">
+      <button id="bRew" title="Rewind">&#9664;&#9664;</button>
+      <button id="bPause" title="Pause" class="on">&#10074;&#10074;</button>
+      <button id="bPlay" title="Play">&#9654;</button>
+      <button id="bFF" title="Fast forward">&#9654;&#9654;</button>
+    </div>
+
+    <h2>Map</h2>
+    <div class="seg">
+      <button id="vTrees" class="on">Per tree</button>
+      <button id="vBlocks">Per block</button>
+    </div>
+    <p class="small" id="viewNote"></p>
+
+    <h2>Main assumptions</h2>
+    <div id="main"></div>
+
+    <h2>Finer assumptions</h2>
+    <div id="fine"></div>
+  </aside>
+</div>
+
+<script type="application/json" id="data">/*DATA*/</script>
+<script>
+"use strict";
+const D = JSON.parse(document.getElementById("data").textContent);
+const Y0 = 2015, Y1 = 2045, NY = Y1 - Y0 + 1;
+
+// ---------- equations ----------
+const FORMS = {
+  lin:      (e, x) => e.a + e.b * x,
+  quad:     (e, x) => e.a + e.b * x + e.c * x * x,
+  cub:      (e, x) => e.a + e.b * x + e.c * x * x + e.d * x * x * x,
+  loglogw1: (e, x) => Math.exp(e.a + e.b * Math.log(Math.log(x + 1))),
+  loglogw2: (e, x) => Math.exp(e.a + e.b * Math.log(Math.log(x + 1))),
+  expow1:   (e, x) => Math.exp(e.a + e.b * x),
+};
+const codes = Object.keys(D.equations);
+const codeIdx = Object.fromEntries(codes.map((c, i) => [c, i]));
+function compile(e) {
+  const o = { a: e.a || 0, b: e.b || 0, c: e.c || 0, d: e.d || 0 }, f = FORMS[e.form];
+  return x => f(o, x);
+}
+const EQ = codes.map(c => ({
+  age: compile(D.equations[c].age_from_dbh),
+  dbh: compile(D.equations[c].dbh_from_age),
+  crown: compile(D.equations[c].crown_diameter_from_dbh),
+}));
+const XMAX = codes.map(c => D.equations[c].age_from_dbh.x_max);   // largest dbh (cm) the age equation was fitted to
+const HONEY = codeIdx["GLTR"];
+
+// ---------- data ----------
+const N = D.trees.length, S = D.sites.length, M = N + S;      // slots: census trees, then one per planting site
+const blockIdx = new Map(D.blocks.map((b, i) => [b.id, i]));
+const slotEq = new Uint8Array(M), slotBlock = new Int16Array(M).fill(-1);
+const slotLon = new Float64Array(M), slotLat = new Float64Array(M), dbh0 = new Float32Array(N);
+D.trees.forEach((t, i) => {
+  slotEq[i] = codeIdx[t[2]]; dbh0[i] = t[3];
+  slotBlock[i] = t[4] == null ? -1 : blockIdx.get(t[4]);
+  slotLon[i] = t[5]; slotLat[i] = t[6];
+});
+
+// fixed pseudo-random numbers: the same settings always give the same run
+function rnd(i, y) {
+  let h = Math.imul(i + 1, 2654435761) ^ Math.imul(y + 17, 40503) ^ 0x9e3779b9;
+  h = Math.imul(h ^ (h >>> 16), 2246822507); h = Math.imul(h ^ (h >>> 13), 3266489909); h ^= h >>> 16;
+  return (h >>> 0) / 4294967296;
+}
+// the order in which planting sites get planted
+const order = Array.from({ length: S }, (_, i) => i);
+for (let i = S - 1; i > 0; i--) { const j = Math.floor(rnd(i, 999) * (i + 1)); [order[i], order[j]] = [order[j], order[i]]; }
+const rankOfSite = new Int32Array(S); order.forEach((s, r) => rankOfSite[s] = r);
+for (let k = 0; k < S; k++) {
+  const s = D.sites[order[k]];
+  slotBlock[N + k] = s[2] == null ? -1 : blockIdx.get(s[2]);
+  slotLon[N + k] = s[3]; slotLat[N + k] = s[4]; slotEq[N + k] = HONEY;
+}
+
+// ---------- assumptions ----------
+const MAIN = [
+  { id: "rain", name: "Rainfall", unit: "in/yr", min: 30, max: 60, step: 0.5, value: 41,
+    src: "Start: 41 in, observed at JFK in 2000, used by NYC Parks. Range 30 to 60 is an estimate for the NYC metro." },
+  { id: "intc", name: "Interception", unit: "%", min: 5, max: 35, step: 1, value: 15,
+    src: "Share of rain a tree's leaves catch. Start: 15%, one Callery pear (Xiao et al. 2000); a cork oak caught 27%. Range 5 to 35 is an estimate." },
+  { id: "plant", name: "New plantings per year", unit: "trees", min: 0, max: 100, step: 1, value: 0,
+    src: "Honeylocust, 3 in dbh when planted, on dead-tree and stump sites chosen at random. Honeylocust and 3 in are assumptions." },
+];
+const FINE = [
+  { id: "dYoung", name: "Death rate, trees under age 5", unit: "%/yr", min: 0, max: 10, step: 0.1, value: 2.8,
+    src: "Start: 2.8% a year (i-Tree). Range is an estimate." },
+  { id: "dOld", name: "Death rate, trees age 5 and over", unit: "%/yr", min: 0, max: 5, step: 0.01, value: 0.57,
+    src: "Start: 0.57% a year (i-Tree). Range is an estimate." },
+];
+const P = {};
+[...MAIN, ...FINE].forEach(c => P[c.id] = c.value);
+
+// ---------- the run ----------
+// canopy[yi*M + slot] in m2 (0 if not alive); planted[yi] = trees planted so far
+let canopy = new Float32Array(NY * M), living = new Uint8Array(NY * M), planted = new Int32Array(NY);
+function run() {
+  const dbh = new Float32Array(M), alive = new Uint8Array(M);
+  for (let i = 0; i < N; i++) { dbh[i] = dbh0[i]; alive[i] = 1; }
+  let nPlanted = 0;
+  canopy.fill(0); living.fill(0);
+  const record = yi => {
+    for (let i = 0; i < N + nPlanted; i++) if (alive[i]) {
+      const crown = Math.max(0, EQ[slotEq[i]].crown(dbh[i] * 2.54));
+      canopy[yi * M + i] = Math.PI * (crown / 2) ** 2; living[yi * M + i] = 1;
+    }
+    planted[yi] = nPlanted;
+  };
+  record(0);
+  for (let yi = 1; yi < NY; yi++) {
+    for (let i = 0; i < N + nPlanted; i++) if (alive[i]) {
+      const e = EQ[slotEq[i]], cm = dbh[i] * 2.54;
+      const age = Math.max(0, e.age(cm));
+      const xm = XMAX[slotEq[i]];
+      if (!(xm && cm >= xm)) {       // growth stops at the largest dbh the equation was fitted to
+        const growth = Math.max(0, e.dbh(age + 1) - e.dbh(age));
+        dbh[i] += (isFinite(growth) ? growth : 0) / 2.54;
+      }
+      const p = (age < 5 ? P.dYoung : P.dOld) / 100;
+      if (rnd(i, yi) < p) alive[i] = 0;
+    }
+    for (let k = 0; k < P.plant && nPlanted < S; k++) { const i = N + nPlanted++; alive[i] = 1; dbh[i] = 3; }
+    record(yi);
+  }
+}
+
+// ---------- per-frame numbers ----------
+const K = () => P.rain * 0.0254 * (P.intc / 100) * 264.17;      // gallons per m2 of canopy
+let year = Y0, gal = new Float32Array(M), blockGal = new Float64Array(D.blocks.length), total = 0;
+function frame() {
+  const yi = year - Y0, k = K();
+  blockGal.fill(0); total = 0;
+  for (let i = 0; i < N + planted[yi]; i++) {
+    const c = canopy[yi * M + i];
+    gal[i] = c * k; total += gal[i];
+    if (slotBlock[i] >= 0) blockGal[slotBlock[i]] += gal[i];
+  }
+}
+
+// ---------- scales (fixed to the default run, so slider changes show up as colour changes) ----------
+const RAMP = ["#deebf7", "#9ecae1", "#4292c6", "#08519c", "#08306b"];
+function hex(h) { return [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16)); }
+const RAMP_RGB = RAMP.map(hex);
+function ramp(t) {
+  t = Math.min(1, Math.max(0, t)); const s = t * (RAMP.length - 1), i = Math.min(RAMP.length - 2, Math.floor(s)), f = s - i;
+  const a = RAMP_RGB[i], b = RAMP_RGB[i + 1];
+  return `rgb(${Math.round(a[0] + (b[0] - a[0]) * f)},${Math.round(a[1] + (b[1] - a[1]) * f)},${Math.round(a[2] + (b[2] - a[2]) * f)})`;
+}
+let treeMax = 1, blockMax = 1;
+function quantile(arr, q) { arr = arr.filter(v => v > 0).sort((a, b) => a - b); return arr[Math.floor(q * (arr.length - 1))] || 1; }
+function setScales() {
+  const trees = [], blocks = [], k = K();
+  for (let yi = 0; yi < NY; yi += 5) {
+    const bs = new Float64Array(D.blocks.length);
+    for (let i = 0; i < N; i++) { const g = canopy[yi * M + i] * k; if (g > 0) { trees.push(g); if (slotBlock[i] >= 0) bs[slotBlock[i]] += g; } }
+    D.blocks.forEach((b, j) => { if (bs[j] > 0) blocks.push(bs[j] / b.acres); });
+  }
+  treeMax = quantile(trees, 0.98); blockMax = quantile(blocks, 0.98);
+}
+
+// ---------- map ----------
+const cv = document.getElementById("map"), ctx = cv.getContext("2d"), wrap = document.getElementById("mapwrap");
+let W = 0, H = 0, dpr = 1, px = new Float32Array(M), py = new Float32Array(M), paths = [];
+let view = "trees";
+function layout() {
+  dpr = window.devicePixelRatio || 1; W = wrap.clientWidth; H = wrap.clientHeight;
+  cv.width = W * dpr; cv.height = H * dpr;
+  let x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9;
+  const lat0 = 40.82, cs = Math.cos(lat0 * Math.PI / 180);
+  D.blocks.forEach(b => b.rings.forEach(r => r.forEach(([lo, la]) => {
+    x0 = Math.min(x0, lo * cs); x1 = Math.max(x1, lo * cs); y0 = Math.min(y0, la); y1 = Math.max(y1, la);
+  })));
+  const pad = 16, sc = Math.min((W - 2 * pad) / (x1 - x0), (H - 2 * pad) / (y1 - y0));
+  const ox = (W - sc * (x1 - x0)) / 2, oy = (H - sc * (y1 - y0)) / 2;
+  const X = lo => ox + (lo * cs - x0) * sc, Y = la => oy + (y1 - la) * sc;
+  for (let i = 0; i < M; i++) { px[i] = X(slotLon[i]); py[i] = Y(slotLat[i]); }
+  paths = D.blocks.map(b => {
+    const p = new Path2D();
+    b.rings.forEach(r => { r.forEach(([lo, la], j) => j ? p.lineTo(X(lo), Y(la)) : p.moveTo(X(lo), Y(la))); p.closePath(); });
+    return p;
+  });
+  draw();
+}
+function draw() {
+  frame();
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, W, H);
+  const yi = year - Y0;
+  ctx.lineWidth = 0.6;
+  paths.forEach((p, j) => {
+    if (view === "blocks" && blockGal[j] > 0) { ctx.fillStyle = ramp(blockGal[j] / D.blocks[j].acres / blockMax); ctx.fill(p); }
+    ctx.strokeStyle = view === "blocks" ? "#9aa5a0" : "#cdd3d0"; ctx.stroke(p);
+  });
+  if (view === "trees") {
+    ctx.fillStyle = "rgba(176,121,92,.55)";
+    for (let s = 0; s < S; s++) {            // untaken planting sites
+      if (rankOfSite[s] >= planted[yi]) { const i = N + rankOfSite[s]; ctx.beginPath(); ctx.arc(px[i], py[i], 1.6, 0, 6.2832); ctx.fill(); }
+    }
+    const B = 24, groups = Array.from({ length: B }, () => []);
+    for (let i = 0; i < N + planted[yi]; i++) if (living[yi * M + i])
+      groups[Math.min(B - 1, Math.floor(gal[i] / treeMax * B))].push(i);
+    groups.forEach((g, b) => {
+      ctx.fillStyle = ramp((b + 0.5) / B); ctx.beginPath();
+      g.forEach(i => { ctx.moveTo(px[i] + 2.2, py[i]); ctx.arc(px[i], py[i], 2.2, 0, 6.2832); });
+      ctx.fill();
+    });
+  }
+  readout(); legend();
+}
+function readout() {
+  const yi = year - Y0; let n = 0;
+  for (let i = 0; i < N + planted[yi]; i++) if (living[yi * M + i]) n++;
+  document.getElementById("readout").innerHTML =
+    `<b>${year}</b> &nbsp;${n.toLocaleString()} trees &middot; ${Math.round(total).toLocaleString()} gal/yr`;
+}
+function legend() {
+  const grad = `linear-gradient(to right, ${RAMP.join(",")})`;
+  const unit = view === "trees" ? "gallons per tree per year" : "gallons per acre per year (street trees in the block)";
+  const max = Math.round(view === "trees" ? treeMax : blockMax).toLocaleString();
+  document.getElementById("legend").innerHTML =
+    `<div>${unit}</div><div class="bar" style="background:${grad}"></div>
+     <div class="bar-labels"><span>0</span><span>${max}+</span></div>
+     <div class="small">Scale is fixed to the default run, so changes in the sliders show as changes in colour.</div>` +
+    (view === "trees" ? `<div class="small"><span class="swatch"></span>planting site (dead tree or stump in 2015)</div>`
+                      : `<div class="small">Blocks with no street trees are left blank.</div>`);
+}
+
+// ---------- controls ----------
+function buildSlider(c, host) {
+  const d = document.createElement("div"); d.className = "ctl";
+  d.innerHTML = `<div class="head"><span class="name">${c.name}</span><span class="val"></span></div>
+    <input type="range" min="${c.min}" max="${c.max}" step="${c.step}" value="${c.value}" aria-label="${c.name}">
+    <div class="ends"><span>${c.min} ${c.unit}</span><span>starts at ${c.value}</span><span>${c.max} ${c.unit}</span></div>
+    <div class="src">${c.src}</div>`;
+  const inp = d.querySelector("input"), val = d.querySelector(".val");
+  const show = () => val.textContent = `${(+inp.value).toLocaleString(undefined, { maximumFractionDigits: 2 })} ${c.unit}`;
+  show();
+  inp.addEventListener("input", () => {
+    P[c.id] = +inp.value; show();
+    if (["plant", "dYoung", "dOld"].includes(c.id)) run();
+    draw();
+  });
+  host.appendChild(d);
+}
+MAIN.forEach(c => buildSlider(c, document.getElementById("main")));
+FINE.forEach(c => buildSlider(c, document.getElementById("fine")));
+
+const clock = document.getElementById("clock"), yl = document.getElementById("yearLabel");
+function setYear(y) { year = Math.min(Y1, Math.max(Y0, y)); clock.value = year; yl.textContent = year; draw(); }
+clock.addEventListener("input", () => { stop(); setYear(+clock.value); });
+let timer = null, dir = 0;
+const btns = { rew: bRew, pause: bPause, play: bPlay, ff: bFF };
+function mark(n) { Object.entries(btns).forEach(([k, b]) => b.classList.toggle("on", k === n)); }
+function stop() { clearInterval(timer); timer = null; mark("pause"); }
+function go(d, ms, n) {
+  clearInterval(timer); mark(n);
+  timer = setInterval(() => { if ((d > 0 && year >= Y1) || (d < 0 && year <= Y0)) return stop(); setYear(year + d); }, ms);
+}
+bRew.onclick = () => go(-1, 700, "rew"); bPause.onclick = stop;
+bPlay.onclick = () => { if (year >= Y1) setYear(Y0); go(1, 700, "play"); };
+bFF.onclick = () => { if (year >= Y1) setYear(Y0); go(1, 200, "ff"); };
+
+const NOTES = {
+  trees: "Each dot is one living street tree, coloured by the stormwater it intercepts that year. Brown dots are 2015's dead trees and stumps that have not been replanted.",
+  blocks: "Each census block is coloured by the stormwater its street trees intercept that year, per acre of block.",
+};
+function setView(v) {
+  view = v; vTrees.classList.toggle("on", v === "trees"); vBlocks.classList.toggle("on", v === "blocks");
+  document.getElementById("viewNote").textContent = NOTES[v]; draw();
+}
+vTrees.onclick = () => setView("trees"); vBlocks.onclick = () => setView("blocks");
+
+// ---------- start ----------
+run(); setScales(); setView("trees");
+new ResizeObserver(layout).observe(wrap); layout();
+</script>
+</body>
+</html>

@@ -1,0 +1,607 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The City As Sponge</title>
+<style>
+  :root {
+    --bg: #f6f6f3; --panel: #ffffff; --ink: #1f2427; --muted: #646b70; --line: #dcdedb;
+    --accent: #1f4e79; --water: #d3dadf; --rain: #2b6cb0; --drain: #8a6d3b;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+    font: 13.5px/1.5 -apple-system, BlinkMacSystemFont, "Helvetica Neue", Helvetica, Arial, sans-serif; }
+  .app { display: grid; grid-template-columns: 320px minmax(0, 1fr) 330px; height: 100vh; }
+  .panel { background: var(--panel); overflow-y: auto; padding: 20px 20px 32px; }
+  .left { border-right: 1px solid var(--line); }
+  .right { border-left: 1px solid var(--line); }
+  h1 { font: 400 26px/1.15 Georgia, "Times New Roman", serif; margin: 0 0 12px; letter-spacing: -.01em; }
+  h2 { font-size: 10.5px; text-transform: uppercase; letter-spacing: .1em; color: var(--muted); font-weight: 600;
+    margin: 24px 0 8px; padding-top: 14px; border-top: 1px solid var(--line); }
+  h2:first-of-type { border-top: 0; padding-top: 0; }
+  p { margin: 0 0 9px; }
+  .small { font-size: 12px; color: var(--muted); }
+  ul, ol { margin: 0 0 10px; padding-left: 18px; }
+  li { margin-bottom: 4px; }
+  code { font: 11.5px/1.4 ui-monospace, Menlo, monospace; background: #f1f2ef; padding: 1px 3px; border-radius: 2px; }
+  .tag { display: inline-block; font-size: 10px; text-transform: uppercase; letter-spacing: .06em; padding: 0 5px;
+    border: 1px solid var(--line); border-radius: 2px; color: var(--muted); margin-left: 4px; vertical-align: 1px; }
+  .tag.a { color: #8a5a00; border-color: #e5cf9f; background: #fdf8ec; }
+  .tag.s { color: #2d6a3e; border-color: #b9dcc3; background: #f1f9f3; }
+
+  .center { position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+  .topbar { display: flex; align-items: center; gap: 14px; padding: 10px 14px; border-bottom: 1px solid var(--line); background: var(--panel); }
+  .seg { flex: none; display: inline-flex; border: 1px solid var(--line); border-radius: 3px; overflow: hidden; }
+  .seg button { white-space: nowrap; border: 0; border-radius: 0; background: #fff; padding: 5px 12px; font: inherit; color: var(--muted); cursor: pointer; }
+  .seg button + button { border-left: 1px solid var(--line); }
+  .seg button.on { background: var(--ink); color: #fff; }
+  .topbar .hint { color: var(--muted); font-size: 12px; }
+  .mapwrap { position: relative; flex: 1; min-height: 0; background: var(--water); }
+  canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+  #map.hand { cursor: crosshair; }
+  .summary { position: absolute; left: 12px; top: 12px; background: rgba(255,255,255,.93); border: 1px solid var(--line);
+    padding: 8px 10px; font-size: 12px; min-width: 230px; pointer-events: none; }
+  .summary table { border-collapse: collapse; width: 100%; }
+  .summary td { padding: 1px 0; }
+  .summary td:last-child { text-align: right; font-variant-numeric: tabular-nums; padding-left: 12px; }
+  .zoomreset { position: absolute; right: 12px; top: 12px; border: 1px solid var(--line); background: rgba(255,255,255,.93);
+    border-radius: 3px; padding: 4px 10px; font: inherit; font-size: 12px; cursor: pointer; }
+  .zoomreset:hover { background: #fff; }
+  .inspect { position: absolute; right: 12px; bottom: 12px; background: rgba(255,255,255,.95); border: 1px solid var(--line);
+    padding: 8px 10px; font-size: 12px; min-width: 250px; display: none; }
+  .inspect.show { display: block; }
+  .inspect table { border-collapse: collapse; width: 100%; }
+  .inspect td { padding: 1px 0; vertical-align: top; }
+  .inspect td:last-child { text-align: right; font-variant-numeric: tabular-nums; padding-left: 12px; }
+  .inspect .hd { font-weight: 600; margin-bottom: 3px; display: flex; justify-content: space-between; }
+  .low { color: #a23b2a; }
+
+  .clock { font: 400 30px/1 Georgia, serif; font-variant-numeric: tabular-nums; }
+  .phase { display: inline-block; font-size: 11px; text-transform: uppercase; letter-spacing: .08em; padding: 2px 7px;
+    border-radius: 2px; margin-left: 8px; vertical-align: 6px; color: #fff; }
+  .phase.raining { background: var(--rain); }
+  .phase.draining { background: var(--drain); }
+  .phase.dry { background: #999; }
+  .buttons { display: flex; gap: 5px; margin: 10px 0 8px; }
+  .buttons button { flex: 1; border: 1px solid var(--line); background: #fff; border-radius: 3px; padding: 6px 0; font: inherit; cursor: pointer; }
+  .buttons button:hover { background: #f3f4f1; }
+  .buttons button.primary { background: var(--ink); color: #fff; border-color: var(--ink); }
+  .ctl { margin: 12px 0 4px; }
+  .ctl .row { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+  .ctl label { font-weight: 500; }
+  .ctl .val { font-variant-numeric: tabular-nums; font-weight: 600; white-space: nowrap; }
+  .ctl input[type=range] { width: 100%; margin: 5px 0 1px; accent-color: var(--accent); }
+  .ctl .range { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); }
+  .ctl .note { font-size: 11.5px; color: var(--muted); margin-top: 2px; }
+  #timeline { position: relative; }
+  .stormband { height: 4px; display: flex; margin-top: 2px; }
+  .stormband span { display: block; height: 100%; }
+  .legend .bar { height: 12px; border: 1px solid var(--line); margin: 6px 0 2px; }
+  .legend .ticks { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .legend .key { display: flex; align-items: center; gap: 8px; margin-top: 8px; font-size: 12px; }
+  .legend .sw { width: 16px; height: 12px; border: 1px solid var(--line); flex: none; }
+  details { margin-top: 6px; }
+  summary { cursor: pointer; color: var(--muted); font-size: 12px; }
+  .handonly { display: none; }
+  body.mode-hand .handonly { display: block; }
+  body.mode-hand .stormonly { display: none; }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- ───────────────────────── left: information ───────────────────────── -->
+  <aside class="panel left">
+    <h1>The City As Sponge</h1>
+    <p>A simplified cellular-automata simulation of rain falling on New York City. It shows how street-level
+      elevation and impervious surfaces decide where stormwater collects, how it runs from one 500&nbsp;ft cell to the
+      next, and how it drains once the rain stops.</p>
+
+    <h2>The record</h2>
+    <p>Each of the <b id="ncells">—</b> land cells is a 500&nbsp;×&nbsp;500&nbsp;ft square of the city with fixed attributes:</p>
+    <ul>
+      <li><b>Elevation (ft)</b> — the average of a triangulated surface (TIN) built through
+        <span id="npts">—</span> spot elevations from the NYC Planimetric Database (SUB_CODE 300000), sampled every 50&nbsp;ft in the cell.
+        <span class="tag s">data</span></li>
+      <li><b>Impervious fraction (0–1)</b> — share of the cell covered by impervious land cover in the NYC
+        impervious-surface geodatabases, measured on a 10&nbsp;ft raster. <span class="tag s">data</span><br>
+        <span class="small">That data covers tax lots only. Area in a land cell with no lot record (about 25% of the
+        city's land) is assumed to be street and sidewalk and counted as fully impervious. <span class="tag a">assumption</span></span><br>
+        <span class="small">Semi-pervious classes are weighted by rational-method runoff coefficients: gravel 0.45
+        (Iowa DOT Design Manual 4A-5), bare soil 0.25 (loose soil, rational-method tables), synthetic turf 0.95
+        (Ohio EPA draft guidance 8.3). <span class="tag a">assumption</span></span></li>
+      <li><b>Elevation confidence</b> — <i>high</i>: ≥3 spot elevations in the cell and one within 150&nbsp;ft of its
+        center; <i>medium</i>: at least one in the cell; <i>low</i>: none, or outside the TIN. Low-confidence cells
+        stay in the run.</li>
+    </ul>
+    <p class="small">Cells that are mostly water, or outside the city's land-cover record, are drawn in grey-blue.
+      This is the only base map; there are no tiles.</p>
+
+    <h2>The rule, every minute</h2>
+    <ol>
+      <li><b>Rain.</b> <code>effective rain = rainfall ÷ 60 × runoff factor</code>, where
+        <code>runoff factor = p + (1 − p) × impervious fraction</code> and <i>p</i> is the pervious runoff fraction.</li>
+      <li><b>Drainage.</b> <code>drained = min(depth, drainage ÷ 60)</code>, the same everywhere.</li>
+      <li><b>Compare.</b> <code>water level (ft) = elevation + depth (in) ÷ 12</code>. Only neighbors with a lower
+        water level can receive water, so a low cell fills until it spills.</li>
+      <li><b>Send.</b> Water above the surface storage can move:
+        <code>outgoing = (depth − storage) × routing fraction</code>, split among lower neighbors by their
+        share of the total head difference.</li>
+      <li><b>Update together.</b> All transfers are collected first, then every cell updates at once. Depth never
+        goes below zero.</li>
+    </ol>
+    <p class="small">At the shore and the city line, the missing neighbors are treated as ground at the cell's own
+      elevation with no water on it, so water above the storage can leave. It is counted as boundary outflow.
+      The balance <code>rain added = stored + drained + boundary outflow</code> is checked every step.</p>
+
+    <h2>What it can't see</h2>
+    <ul>
+      <li><b>Real street surfaces.</b> Streets and sidewalks aren't in the land-cover data; they are assumed fully paved,
+        and at the shore some of that “street” may really be water or pier.</li>
+      <li><b>Buildings.</b> Spot elevations are ground points, so water flows straight through building footprints.
+        Roofs count as impervious, but their water lands on the cell's ground.</li>
+      <li><b>Sewers.</b> Drainage is one uniform rate, not catch basins, pipe sizes or combined-sewer overflows.
+        Sewers don't fill up or back up.</li>
+      <li><b>Soil and saturation.</b> Pervious ground absorbs the same share of rain from the first minute to the last.</li>
+      <li><b>Detail below 500&nbsp;ft.</b> Curbs, basements, underpasses and individual low spots are averaged away.</li>
+      <li><b>Tides and storm surge.</b> The rivers and harbor take any amount of water and never rise.</li>
+      <li><b>Speed of flow.</b> Water moves by a fixed routing fraction each minute, not by slope and roughness
+        (Manning's equation), so travel times are only relative.</li>
+    </ul>
+    <p class="small">Data: NYC Planimetric Database, Elevation Points (export 2026-10-07); NYC impervious-surface
+      geodatabases for the five boroughs. Rule after the weighted cellular-automata approach in Gibson et&nbsp;al.,
+      “Accuracy and computational efficiency of 2D urban surface flood modelling based on cellular automata,”
+      <i>Procedia Engineering</i> 154 (2016).</p>
+  </aside>
+
+  <!-- ───────────────────────── center: map ───────────────────────── -->
+  <main class="center">
+    <div class="topbar">
+      <div class="seg" role="tablist">
+        <button id="modeStorm" class="on">Storm run</button>
+        <button id="modeHand">Rain by hand</button>
+      </div>
+      <span class="hint stormonly">Hover a cell to inspect it, or click to pin it. Scroll over the map to zoom.</span>
+      <span class="hint handonly">Hold the left button to rain on a circle 45 cells (22,500&nbsp;ft, about 4.3&nbsp;mi) across. Hold the right button to rain on the whole city.</span>
+    </div>
+    <div class="mapwrap" id="mapwrap">
+      <canvas id="map"></canvas>
+      <button class="zoomreset" id="bZoom" title="Show the whole city">Reset zoom</button>
+      <div class="summary">
+        <table>
+          <tr><td>Minute</td><td id="sMin">0</td></tr>
+          <tr><td>Rainfall intensity</td><td id="sRain">—</td></tr>
+          <tr><td>Rain added</td><td id="sAdded">—</td></tr>
+          <tr><td>Total surface water</td><td id="sStored">—</td></tr>
+          <tr><td>Total drained water</td><td id="sDrained">—</td></tr>
+          <tr><td>Boundary outflow</td><td id="sOut">—</td></tr>
+          <tr><td>Maximum cell depth</td><td id="sMax">—</td></tr>
+        </table>
+      </div>
+      <div class="inspect" id="inspect"></div>
+    </div>
+  </main>
+
+  <!-- ───────────────────────── right: clock, legend, sliders ───────────────────────── -->
+  <aside class="panel right">
+    <h2>Clock</h2>
+    <div class="stormonly">
+      <div><span class="clock" id="clock">0 min</span><span class="phase raining" id="phase">Raining</span></div>
+      <div class="buttons">
+        <button id="bReset" title="Reset to minute 0">⏮</button>
+        <button id="bBack" title="Step back one minute">◀︎ 1</button>
+        <button id="bPlay" class="primary" title="Run / pause">Run</button>
+        <button id="bFwd" title="Step forward one minute">1 ▶︎</button>
+      </div>
+      <div class="ctl" id="timeline">
+        <div class="row"><label for="tSlider">Time</label><span class="val" id="tVal">0 / 360 min</span></div>
+        <input type="range" id="tSlider" min="0" max="360" step="1" value="0">
+        <div class="stormband"><span style="width:16.67%;background:var(--rain)"></span><span style="width:83.33%;background:var(--drain);opacity:.55"></span></div>
+        <div class="range" style="position:relative"><span>0</span><span style="position:absolute;left:16.67%">| 60: rain stops</span><span>360</span></div>
+      </div>
+      <div class="ctl">
+        <div class="row"><label for="speed">Playback speed</label><span class="val" id="speedVal">5 min / s</span></div>
+        <input type="range" id="speed" min="1" max="30" step="1" value="5">
+        <div class="range"><span>1</span><span>start 5</span><span>30 simulated min per second</span></div>
+      </div>
+    </div>
+    <div class="handonly">
+      <div><span class="clock" id="hClock">0 min</span><span class="phase dry" id="hPhase">Draining</span></div>
+      <p class="small" style="margin-top:8px">Runs continuously at 10 simulated minutes per second. Rain falls only while
+        a button is held. Water keeps routing and draining the rest of the time.</p>
+      <div class="buttons"><button id="bClear">Clear water</button><button id="bPause">Pause</button></div>
+    </div>
+
+    <h2>Legend</h2>
+    <div class="legend">
+      <div>Water depth (in)</div>
+      <div class="bar" id="legendBar"></div>
+      <div class="ticks" id="legendTicks"></div>
+      <div class="key"><span class="sw" style="background:#fff"></span>Dry land (under 0.01 in)</div>
+      <div class="key"><span class="sw" style="background:var(--water)"></span>Water, or outside NYC's land-cover record</div>
+      <div class="key"><span class="sw" style="background:#fff;outline:2px solid #e8553a;outline-offset:-2px"></span>Selected cell</div>
+    </div>
+
+    <h2>Storm</h2>
+    <div class="ctl">
+      <div class="row"><label for="rain">Rainfall intensity</label><span class="val" id="rainVal"></span></div>
+      <input type="range" id="rain" min="0" max="6" step="0.1">
+      <div class="range"><span>0</span><span>start 3</span><span>6 in/hr</span></div>
+      <div class="note">Storm severity. In the storm run it falls for the first 60 minutes. <span class="tag a">assumption</span><br>
+        For scale: NYC's record hour is 3.15 in (Central Park, Hurricane Ida, 2021).</div>
+    </div>
+    <div class="ctl">
+      <div class="row"><label for="drain">Drainage rate</label><span class="val" id="drainVal"></span></div>
+      <input type="range" id="drain" min="0" max="30" step="0.05">
+      <div class="range"><span>0</span><span>start 1.75</span><span>30 in/hr</span></div>
+      <div class="note">Water removed from every cell by sewers and other drainage, the same everywhere. Starts at 1.75 in/hr, the rate NYC DEP gives as the design capacity of most of the city's sewers. <span class="tag s">source</span> Applying it uniformly to every cell is an <span class="tag a">assumption</span></div>
+    </div>
+
+    <h2>Finer assumptions</h2>
+    <div class="ctl">
+      <div class="row"><label for="pRun">Pervious runoff fraction</label><span class="val" id="pRunVal"></span></div>
+      <input type="range" id="pRun" min="0" max="1" step="0.01">
+      <div class="range"><span>0</span><span>start 0.15</span><span>1</span></div>
+      <div class="note">Share of rain on fully pervious ground that runs off instead of soaking in. <span class="tag a">assumption</span></div>
+    </div>
+    <div class="ctl">
+      <div class="row"><label for="store">Surface storage</label><span class="val" id="storeVal"></span></div>
+      <input type="range" id="store" min="0" max="1" step="0.05">
+      <div class="range"><span>0</span><span>start 0.1</span><span>1 in</span></div>
+      <div class="note">Depth a cell holds before any water can move on. Starts at 0.1 in, the upper end of typical depression storage on pavement (0.05–0.10 in; EPA SWMM Hydrology Reference Manual, after ASCE 1992). <span class="tag a">assumption</span></div>
+    </div>
+    <div class="ctl">
+      <div class="row"><label for="route">Routing fraction</label><span class="val" id="routeVal"></span></div>
+      <input type="range" id="route" min="0.05" max="1" step="0.05">
+      <div class="range"><span>0.05</span><span>start 0.25</span><span>1</span></div>
+      <div class="note">Share of the movable water that leaves a cell each minute. <span class="tag a">assumption</span></div>
+    </div>
+    <p class="small" style="margin-top:14px">Run length: 60-minute storm, then 300 minutes of draining, in 1-minute steps.
+      Every starting value is in the <code>CONFIG</code> block at the top of this page's script.</p>
+  </aside>
+</div>
+
+<script id="grid-data" type="application/json">/*GRID_DATA*/</script>
+<script>
+"use strict";
+
+/* ── Configuration: every assumption the rule uses, with its starting value ── */
+const CONFIG = {
+  rainfall_in_per_hour: 3,        // storm severity slider, 0–100
+  drainage_in_per_hour: 1.75,        // assumed uniform drainage, 0–30
+  pervious_runoff_fraction: 0.15,  // assumption
+  surface_storage_in: 0.1,           // assumption
+  routing_fraction: 0.25,          // assumption
+  storm_minutes: 60,
+  total_minutes: 360,
+  hand_circle_cells: 45,           // diameter of the click-and-hold rain circle, in cells
+  hand_minutes_per_second: 10,     // speed of the rain-by-hand mode
+};
+
+/* ── Grid ── */
+const G = JSON.parse(document.getElementById("grid-data").textContent);
+const M = G.meta, N = G.row.length, NR = M.nrows, NC = M.ncols;
+const CELL_SQFT = M.cell_ft * M.cell_ft;
+const elev = Float64Array.from(G.elev), imp = Float64Array.from(G.imp);
+const rowA = Int32Array.from(G.row), colA = Int32Array.from(G.col);
+const nbStart = new Int32Array(N + 1);
+for (let i = 0; i < N; i++) nbStart[i + 1] = nbStart[i] + G.nb[i].length;
+const nbList = new Int32Array(nbStart[N]);
+for (let i = 0; i < N; i++) nbList.set(G.nb[i], nbStart[i]);
+const missing = new Int32Array(N);                // neighbors that are water / outside the city
+for (let i = 0; i < N; i++) missing[i] = 8 - G.nb[i].length;
+const cellAt = new Int32Array(NR * NC).fill(-1);
+for (let i = 0; i < N; i++) cellAt[rowA[i] * NC + colA[i]] = i;
+document.getElementById("ncells").textContent = N.toLocaleString();
+document.getElementById("npts").textContent = M.n_spot_elevations.toLocaleString();
+
+/* ── Parameters from the sliders ── */
+const P = {};
+const sliders = [
+  ["rain", "rainfall_in_per_hour", v => `${v} in/hr`],
+  ["drain", "drainage_in_per_hour", v => `${v} in/hr`],
+  ["pRun", "pervious_runoff_fraction", v => v.toFixed(2)],
+  ["store", "surface_storage_in", v => `${v.toFixed(2)} in`],
+  ["route", "routing_fraction", v => v.toFixed(2)],
+];
+for (const [id, key, fmt] of sliders) {
+  const el = document.getElementById(id), out = document.getElementById(id + "Val");
+  el.value = CONFIG[key]; P[key] = CONFIG[key]; out.textContent = fmt(CONFIG[key]);
+  el.addEventListener("input", () => {
+    P[key] = +el.value; out.textContent = fmt(+el.value);
+    if (mode === "storm") scheduleRecompute(); else draw();
+  });
+}
+
+/* ── The rule: one simultaneous one-minute step ──
+   d       depths (in), updated in place
+   rainIn  rainfall this minute (in), per cell, or null for none
+   returns { added, drained, outflow } in cell-inches                                         */
+const tmp = new Float64Array(N), inc = new Float64Array(N);
+function step(d, rainIn, p) {
+  const pr = p.pervious_runoff_fraction, drainStep = p.drainage_in_per_hour / 60;
+  const storage = p.surface_storage_in, route = p.routing_fraction;
+  let added = 0, drained = 0, outflow = 0;
+  // 1–2. rainfall and drainage for all cells
+  for (let i = 0; i < N; i++) {
+    let w = d[i];
+    if (rainIn) { const r = rainIn[i] * (pr + (1 - pr) * imp[i]); w += r; added += r; }
+    const dr = Math.min(w, drainStep); w -= dr; drained += dr;
+    tmp[i] = w;
+  }
+  // 3–4. outgoing transfers, collected into a separate array
+  inc.fill(0);
+  for (let i = 0; i < N; i++) {
+    const movable = tmp[i] - storage;
+    if (movable <= 0) continue;
+    const level = elev[i] + tmp[i] / 12;
+    let sum = 0;
+    for (let k = nbStart[i]; k < nbStart[i + 1]; k++) {
+      const j = nbList[k], h = level - (elev[j] + tmp[j] / 12);
+      if (h > 0) sum += h;
+    }
+    const edgeH = tmp[i] / 12;                 // outside neighbor: same ground, no water
+    sum += missing[i] * edgeH;
+    if (sum <= 0) continue;                    // no lower neighbor: keep the water
+    const out = movable * route;
+    inc[i] -= out;
+    for (let k = nbStart[i]; k < nbStart[i + 1]; k++) {
+      const j = nbList[k], h = level - (elev[j] + tmp[j] / 12);
+      if (h > 0) inc[j] += out * h / sum;
+    }
+    outflow += out * missing[i] * edgeH / sum;
+  }
+  // 5. update all cells together
+  for (let i = 0; i < N; i++) d[i] = Math.max(0, tmp[i] + inc[i]);
+  return { added, drained, outflow };
+}
+
+/* ── Storm run: precompute every minute so the clock can scrub both ways ── */
+const T = CONFIG.total_minutes;
+const frames = new Float32Array((T + 1) * N);
+const stats = { added: new Float64Array(T + 1), drained: new Float64Array(T + 1), outflow: new Float64Array(T + 1),
+                stored: new Float64Array(T + 1), max: new Float64Array(T + 1) };
+const rainArr = new Float64Array(N);
+function recompute() {
+  const d = new Float64Array(N);
+  let A = 0, D = 0, O = 0;
+  for (let t = 1; t <= T; t++) {
+    const raining = t <= CONFIG.storm_minutes && P.rainfall_in_per_hour > 0;
+    if (raining) rainArr.fill(P.rainfall_in_per_hour / 60);
+    const r = step(d, raining ? rainArr : null, P);
+    A += r.added; D += r.drained; O += r.outflow;
+    let S = 0, mx = 0;
+    for (let i = 0; i < N; i++) { S += d[i]; if (d[i] > mx) mx = d[i]; }
+    frames.set(d, t * N);
+    stats.added[t] = A; stats.drained[t] = D; stats.outflow[t] = O; stats.stored[t] = S; stats.max[t] = mx;
+  }
+}
+let recomputeTimer = null;
+function scheduleRecompute() {
+  clearTimeout(recomputeTimer);
+  recomputeTimer = setTimeout(() => { recompute(); draw(); }, 30);
+}
+
+/* ── Volumes: cell-inches → million gallons ── */
+const MGAL = CELL_SQFT / 12 * 7.48052 / 1e6;
+const fmtVol = v => (v * MGAL).toLocaleString(undefined, { maximumFractionDigits: v * MGAL < 10 ? 2 : 0 }) + " M gal";
+const fmtIn = v => v < 0.01 ? "0 in" : v.toFixed(v < 10 ? 2 : 1) + " in";
+
+/* ── Color: white → pale blue → dark blue on a log scale up to 12 in (stretched so tenths of an inch show) ── */
+const DEPTH_MAX = 12, DEPTH_K = 0.1;
+const depthT = d => Math.log1p(d / DEPTH_K) / Math.log1p(DEPTH_MAX / DEPTH_K);
+const ramp = [[255,255,255],[222,235,247],[158,202,225],[66,146,198],[33,113,181],[8,69,148],[8,32,96]];
+const LUT = new Uint8ClampedArray(256 * 3);
+for (let s = 0; s < 256; s++) {
+  const x = s / 255 * (ramp.length - 1), a = Math.floor(x), b = Math.min(a + 1, ramp.length - 1), f = x - a;
+  for (let c = 0; c < 3; c++) LUT[s * 3 + c] = ramp[a][c] + (ramp[b][c] - ramp[a][c]) * f;
+}
+const depthToS = d => d < 0.01 ? 0 : Math.max(1, Math.min(255, Math.round(255 * depthT(d))));
+(function legend() {
+  const stops = [];
+  for (let s = 0; s <= 255; s += 15) stops.push(`rgb(${LUT[s*3]},${LUT[s*3+1]},${LUT[s*3+2]}) ${(s / 255 * 100).toFixed(1)}%`);
+  document.getElementById("legendBar").style.background = `linear-gradient(to right, ${stops.join(",")})`;
+  const ticks = [0, 0.1, 0.5, 1, 3, 12];
+  const el = document.getElementById("legendTicks");
+  el.style.position = "relative"; el.style.height = "14px"; el.style.display = "block";
+  for (const t of ticks) {
+    const span = document.createElement("span");
+    const pct = depthT(t) * 100;
+    span.textContent = t === DEPTH_MAX ? `${t}+` : t;
+    span.style.cssText = `position:absolute;left:${pct}%;transform:translateX(${t === 0 ? 0 : t === DEPTH_MAX ? -100 : -50}%)`;
+    el.appendChild(span);
+  }
+})();
+
+/* ── Map drawing ── */
+const canvas = document.getElementById("map"), ctx = canvas.getContext("2d");
+const off = document.createElement("canvas"); off.width = NC; off.height = NR;
+const offCtx = off.getContext("2d"), img = offCtx.createImageData(NC, NR);
+const WATER = [211, 218, 223];
+for (let k = 0; k < NR * NC; k++) { img.data[k*4] = WATER[0]; img.data[k*4+1] = WATER[1]; img.data[k*4+2] = WATER[2]; img.data[k*4+3] = 255; }
+let view = { s: 1, ox: 0, oy: 0 };
+function layout() {
+  const r = canvas.getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
+  canvas.width = Math.round(r.width * dpr); canvas.height = Math.round(r.height * dpr);
+  const pad = 16 * dpr;
+  const s = Math.min((canvas.width - 2 * pad) / NC, (canvas.height - 2 * pad) / NR);
+  view = { s, ox: (canvas.width - NC * s) / 2, oy: (canvas.height - NR * s) / 2, dpr, fit: s };
+}
+/* Zoom: scroll over the map zooms around the pointer, from the whole city up to 25×. */
+canvas.addEventListener("wheel", e => {
+  e.preventDefault();
+  const r = canvas.getBoundingClientRect();
+  const mx = (e.clientX - r.left) * view.dpr, my = (e.clientY - r.top) * view.dpr;
+  const s = Math.max(view.fit, Math.min(view.fit * 25, view.s * Math.exp(-e.deltaY * 0.0015)));
+  if (s === view.fit) { layout(); draw(); return; }
+  view.ox = mx - (mx - view.ox) * s / view.s; view.oy = my - (my - view.oy) * s / view.s; view.s = s;
+  draw();
+}, { passive: false });
+document.getElementById("bZoom").onclick = () => { layout(); draw(); };
+let selected = -1, hovered = -1;
+function currentDepths() { return mode === "storm" ? frames.subarray(t * N, (t + 1) * N) : handD; }
+function draw() {
+  const d = currentDepths();
+  const px = img.data;
+  for (let i = 0; i < N; i++) {
+    const s = depthToS(d[i]), k = (rowA[i] * NC + colA[i]) * 4;
+    px[k] = LUT[s*3]; px[k+1] = LUT[s*3+1]; px[k+2] = LUT[s*3+2];
+  }
+  offCtx.putImageData(img, 0, 0);
+  ctx.fillStyle = "rgb(211,218,223)"; ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(off, view.ox, view.oy, NC * view.s, NR * view.s);
+  const show = selected >= 0 ? selected : hovered;
+  if (show >= 0) {
+    ctx.strokeStyle = "#e8553a"; ctx.lineWidth = Math.max(1.5, view.s * 0.25);
+    ctx.strokeRect(view.ox + colA[show] * view.s, view.oy + rowA[show] * view.s, view.s, view.s);
+  }
+  if (mode === "hand" && mouse.inside) {
+    ctx.strokeStyle = "rgba(31,36,39,.55)"; ctx.lineWidth = 1 * view.dpr; ctx.setLineDash([4 * view.dpr, 3 * view.dpr]);
+    ctx.beginPath(); ctx.arc(mouse.x, mouse.y, CONFIG.hand_circle_cells / 2 * view.s, 0, Math.PI * 2); ctx.stroke();
+    ctx.setLineDash([]);
+  }
+  updateReadouts(d);
+}
+
+/* ── Readouts ── */
+const $ = id => document.getElementById(id);
+function updateReadouts(d) {
+  let A, S, D, O, mx, minute, rate;
+  if (mode === "storm") {
+    minute = t; A = stats.added[t]; S = stats.stored[t]; D = stats.drained[t]; O = stats.outflow[t]; mx = stats.max[t];
+    rate = t >= 1 && t <= CONFIG.storm_minutes ? P.rainfall_in_per_hour : 0;
+    const raining = t <= CONFIG.storm_minutes;
+    $("clock").textContent = `${t} min`;
+    $("phase").textContent = raining ? "Raining" : "Draining";
+    $("phase").className = "phase " + (raining ? "raining" : "draining");
+    $("tSlider").value = t; $("tVal").textContent = `${t} / ${T} min`;
+    $("bPlay").textContent = playing ? "Pause" : (t >= T ? "Replay" : "Run");
+  } else {
+    minute = hand.minute; A = hand.added; D = hand.drained; O = hand.outflow;
+    S = 0; mx = 0; for (let i = 0; i < N; i++) { S += d[i]; if (d[i] > mx) mx = d[i]; }
+    rate = mouse.down ? P.rainfall_in_per_hour : 0;
+    $("hClock").textContent = `${hand.minute} min`;
+    $("hPhase").textContent = mouse.down ? "Raining" : "Draining";
+    $("hPhase").className = "phase " + (mouse.down ? "raining" : "draining");
+    $("bPause").textContent = hand.paused ? "Resume" : "Pause";
+  }
+  $("sMin").textContent = minute;
+  $("sRain").textContent = `${rate} in/hr`;
+  $("sAdded").textContent = fmtVol(A);
+  $("sStored").textContent = fmtVol(S);
+  $("sDrained").textContent = fmtVol(D);
+  $("sOut").textContent = fmtVol(O);
+  $("sMax").textContent = fmtIn(mx);
+  inspect(d);
+}
+const CONF = ["high", "medium", "low"];
+function inspect(d) {
+  const i = selected >= 0 ? selected : hovered, box = $("inspect");
+  if (i < 0) { box.classList.remove("show"); return; }
+  const rf = P.pervious_runoff_fraction + (1 - P.pervious_runoff_fraction) * imp[i];
+  const conf = CONF[G.conf[i]];
+  box.innerHTML = `<div class="hd"><span>Cell ${i}</span><span class="small">${selected >= 0 ? "pinned · click to release" : "row " + rowA[i] + ", col " + colA[i]}</span></div>
+  <table>
+    <tr><td>Water depth</td><td><b>${fmtIn(d[i])}</b></td></tr>
+    <tr><td>Water level</td><td>${(elev[i] + d[i] / 12).toFixed(2)} ft</td></tr>
+    <tr><td>Ground elevation</td><td>${elev[i].toFixed(2)} ft</td></tr>
+    <tr><td>Elevation confidence</td><td class="${conf === "low" ? "low" : ""}">${conf}${G.outside[i] ? " (outside TIN)" : ""}</td></tr>
+    <tr><td>Spot elevations in cell</td><td>${G.npts[i]}</td></tr>
+    <tr><td>Nearest spot elevation</td><td>${G.near[i]} ft</td></tr>
+    <tr><td>Impervious fraction</td><td>${imp[i].toFixed(2)}</td></tr>
+    <tr><td>Runoff factor</td><td>${rf.toFixed(2)}</td></tr>
+    <tr><td>Lot land-cover record</td><td class="${G.cov[i] < 0.5 ? "low" : ""}">${Math.round(G.cov[i] * 100)}% of cell</td></tr>
+    <tr><td>Assumed street (no record)</td><td>${Math.round((1 - G.cov[i]) * 100)}% of cell</td></tr>
+    <tr><td>Touches water / city edge</td><td>${G.boundary[i] ? "yes" : "no"}</td></tr>
+  </table>`;
+  box.classList.add("show");
+}
+
+/* ── Storm-run clock ── */
+let t = 0, playing = false, lastTs = 0, acc = 0;
+function setT(v) { t = Math.max(0, Math.min(T, v)); draw(); }
+$("tSlider").addEventListener("input", e => { playing = false; setT(+e.target.value); });
+$("bReset").onclick = () => { playing = false; setT(0); };
+$("bBack").onclick = () => { playing = false; setT(t - 1); };
+$("bFwd").onclick = () => { playing = false; setT(t + 1); };
+$("bPlay").onclick = () => { if (!playing && t >= T) t = 0; playing = !playing; acc = 0; lastTs = 0; draw(); };
+$("speed").addEventListener("input", e => { $("speedVal").textContent = `${e.target.value} min / s`; });
+
+/* ── Rain-by-hand mode ── */
+let mode = "storm";
+const handD = new Float64Array(N), handRain = new Float64Array(N);
+const hand = { minute: 0, added: 0, drained: 0, outflow: 0, paused: false };
+const mouse = { x: 0, y: 0, inside: false, down: false, button: 0 };
+function setMode(m) {
+  mode = m; playing = false;
+  document.body.classList.toggle("mode-hand", m === "hand");
+  $("modeStorm").classList.toggle("on", m === "storm"); $("modeHand").classList.toggle("on", m === "hand");
+  canvas.classList.toggle("hand", m === "hand");
+  selected = -1; acc = 0; lastTs = 0; draw();
+}
+$("modeStorm").onclick = () => setMode("storm");
+$("modeHand").onclick = () => setMode("hand");
+$("bClear").onclick = () => { handD.fill(0); Object.assign(hand, { minute: 0, added: 0, drained: 0, outflow: 0 }); draw(); };
+$("bPause").onclick = () => { hand.paused = !hand.paused; draw(); };
+function fillHandRain() {
+  const perMin = P.rainfall_in_per_hour / 60;
+  if (mouse.button === 2) { handRain.fill(perMin); return; }
+  handRain.fill(0);
+  const gc = (mouse.x - view.ox) / view.s, gr = (mouse.y - view.oy) / view.s, rad = CONFIG.hand_circle_cells / 2;
+  for (let r = Math.floor(gr - rad); r <= Math.ceil(gr + rad); r++) {
+    if (r < 0 || r >= NR) continue;
+    for (let c = Math.floor(gc - rad); c <= Math.ceil(gc + rad); c++) {
+      if (c < 0 || c >= NC) continue;
+      const i = cellAt[r * NC + c];
+      if (i >= 0 && (c + 0.5 - gc) ** 2 + (r + 0.5 - gr) ** 2 <= rad * rad) handRain[i] = perMin;
+    }
+  }
+}
+function handStep() {
+  if (mouse.down) fillHandRain();
+  const r = step(handD, mouse.down ? handRain : null, P);
+  hand.added += r.added; hand.drained += r.drained; hand.outflow += r.outflow; hand.minute++;
+}
+
+/* ── Animation loop (both modes) ── */
+function frame(ts) {
+  if (!lastTs) lastTs = ts;
+  const dt = Math.min(0.25, (ts - lastTs) / 1000); lastTs = ts;
+  if (mode === "storm" && playing) {
+    acc += dt * +$("speed").value;
+    const n = Math.floor(acc);
+    if (n > 0) { acc -= n; t = Math.min(T, t + n); if (t >= T) playing = false; draw(); }
+  } else if (mode === "hand" && !hand.paused) {
+    acc += dt * CONFIG.hand_minutes_per_second;
+    let n = Math.floor(acc);
+    if (n > 0) { acc -= n; while (n--) handStep(); draw(); }
+  }
+  requestAnimationFrame(frame);
+}
+
+/* ── Pointer: hover / pin in both modes; hold to rain in hand mode ── */
+function cellFromEvent(e) {
+  const r = canvas.getBoundingClientRect(), dpr = view.dpr;
+  const x = (e.clientX - r.left) * dpr, y = (e.clientY - r.top) * dpr;
+  mouse.x = x; mouse.y = y;
+  const c = Math.floor((x - view.ox) / view.s), rr = Math.floor((y - view.oy) / view.s);
+  return c >= 0 && c < NC && rr >= 0 && rr < NR ? cellAt[rr * NC + c] : -1;
+}
+canvas.addEventListener("mousemove", e => { mouse.inside = true; hovered = cellFromEvent(e); draw(); });
+canvas.addEventListener("mouseleave", () => { mouse.inside = false; mouse.down = false; hovered = -1; draw(); });
+canvas.addEventListener("contextmenu", e => e.preventDefault());
+canvas.addEventListener("mousedown", e => {
+  const i = cellFromEvent(e);
+  if (mode === "hand") { mouse.down = true; mouse.button = e.button === 2 ? 2 : 0; draw(); return; }
+  selected = selected === i ? -1 : i; draw();
+});
+window.addEventListener("mouseup", () => { if (mouse.down) { mouse.down = false; draw(); } });
+
+window.addEventListener("resize", () => { layout(); draw(); });
+layout(); recompute(); draw(); requestAnimationFrame(frame);
+</script>
+</body>
+</html>

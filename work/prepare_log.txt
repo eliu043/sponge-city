@@ -1,0 +1,25 @@
+[     1s] Step 1  elevation records read: 1,471,855
+[     1s] Step 1  spot elevations kept (SUB_CODE = 300000): 376,133
+[     1s] Step 1  dropped for missing elevation or coordinates: 0
+[     2s] Step 2  points reprojected: 376,133; elevation range -14.1 to 403.4 ft
+[     2s] Step 3  grid 311 columns x 310 rows = 96,410 cells (land and water)
+[    19s] Step 4  Manhattan: 711,429 land-cover polygons burned; unrecognized class: 0
+[    66s] Step 4  Bronx: 1,850,657 land-cover polygons burned; unrecognized class: 0
+[   155s] Step 4  Brooklyn: 3,839,472 land-cover polygons burned; unrecognized class: 0
+[   312s] Step 4  Queens: 8,250,285 land-cover polygons burned; unrecognized class: 0
+[   391s] Step 4  Staten_Island: 2,960,948 land-cover polygons burned; unrecognized class: 0
+[   393s] Step 5  land cells: 34,238 (half or more lot cover: 31,498; added because they hold spot elevations: 2,740)
+[   393s] Step 5  water / outside-NYC cells: 62,172
+[   393s] Step 5  water cells holding spot elevations but no lot cover (bridges, piers, edges): 351 cells, 2,345 points
+[   393s] Step 6  building TIN ...
+[   394s] Step 6  land cells with TIN elevation: 34,230; outside the TIN (IDW fallback, tagged): 8
+[   394s] Step 6  cell elevation range -2.2 to 395.0 ft
+[   394s] Step 7  elevation confidence high: 28,379
+[   394s] Step 7  elevation confidence medium: 4,036
+[   394s] Step 7  elevation confidence low: 1,823
+[   394s] Step 7  spot elevations falling on water / outside cells: 2,345
+[   394s] Step 8  impervious fraction mean 0.722; cells fully impervious (>=0.99): 1,546; mostly pervious (<=0.25): 3,273
+[   394s] Step 8  share of land area assumed street/sidewalk: 0.251
+[   394s] Step 8  impervious record: lot record >= half the cell: 32,156; mostly assumed street: 2,082
+[   394s] Step 9  boundary cells (touch water or outside): 4,256; interior: 29,982
+[   395s] Step 10 wrote 34,238 land cells -> grid.json (2.8 MB) and grid_cells.gpkg
